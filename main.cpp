@@ -1,22 +1,33 @@
 #include <mod/amlmod.h>
+#include <mod/config.h>
 #include <mod/logger.h>
-
-#include "GTASA_STRUCTS.h"
 #include <ctime>
 
-MYMOD(net.rusjj.starryskies, GTA StarrySkies, 1.0, RusJJ)
+#include "GTASA_STRUCTS.h"
+
+MYMOD(net.rusjj.starryskies, GTA StarrySkies, 1.1, RusJJ)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.aml, 1.0.2.1)
 END_DEPLIST()
 
 #define AMOUNT_OF_STARS 100
+#define STAR_SKYBOX_SIDES 5
 
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////     Saves     ///////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 uintptr_t pGTASA;
 void* hGTASA;
-float StarCoorsX[5][AMOUNT_OF_STARS], StarCoorsY[5][AMOUNT_OF_STARS], StarSizes[5][AMOUNT_OF_STARS]; // 5 - sides
+float StarCoorsX[STAR_SKYBOX_SIDES][AMOUNT_OF_STARS], StarCoorsY[STAR_SKYBOX_SIDES][AMOUNT_OF_STARS], StarSizes[STAR_SKYBOX_SIDES][AMOUNT_OF_STARS]; // 5 - sides
+float fSmallStars, fMiddleStars, fBiggestStars, fBiggestStarsSpawnChance;
+CVector PositionsTable[5] =
+{
+    { 100.0f,  0.0f,   10.0f}, // Left
+    {-100.0f,  0.0f,   10.0f}, // Right
+    {   0.0f,  100.0f, 10.0f}, // Front
+    {   0.0f, -100.0f, 10.0f}, // Back
+    {   0.0f,  0.0f,   95.0f}, // Up
+};
 
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////     Vars      ///////////////////////////////
@@ -33,40 +44,36 @@ void (*RenderBufferedOneXLUSprite)(CVector pos, float w, float h, uint8_t r, uin
 //////////////////////////////     Patches     //////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 uintptr_t StarrySkies_BackTo;
-CVector PositionsTable[5] =
-{
-    { 100.0f,  0.0f,   10.0f}, // Left
-    {-100.0f,  0.0f,   10.0f}, // Right
-    {   0.0f,  100.0f, 10.0f}, // Front
-    {   0.0f, -100.0f, 10.0f}, // Back
-    {   0.0f,  0.0f,   95.0f}, // Up
-};
 extern "C" void StarrySkies_Patch(float intensity)
 {
     CVector ScreenPos, WorldPos, WorldStarPos, CamPos = TheCamera->GetPosition();
     float SZ, SZX, SZY;
 
-    for(int side = 0; side < 5; ++side)
+    for(int side = 0; side < STAR_SKYBOX_SIDES; ++side)
     {
         WorldPos = PositionsTable[side] + CamPos;
         for(int i = 0; i < AMOUNT_OF_STARS; ++i)
         {
             WorldStarPos = WorldPos;
-            SZ = 0.8f * StarSizes[side][i];
-            if(side == 0 || side == 1)
+            SZ = StarSizes[side][i];
+            switch(side)
             {
-                WorldStarPos.y -= 95.0f * StarCoorsX[side][i];
-                WorldStarPos.z += 95.0f * StarCoorsY[side][i];
-            }
-            if(side == 2 || side == 3)
-            {
-                WorldStarPos.x -= 95.0f * StarCoorsX[side][i];
-                WorldStarPos.z += 95.0f * StarCoorsY[side][i];
-            }
-            else
-            {
-                WorldStarPos.x += 95.0f * StarCoorsX[side][i];
-                WorldStarPos.y += 95.0f * StarCoorsY[side][i];
+                case 0:
+                case 1:
+                    WorldStarPos.y -= StarCoorsX[side][i];
+                    WorldStarPos.z += StarCoorsY[side][i];
+                    break;
+
+                case 2:
+                case 3:
+                    WorldStarPos.x -= StarCoorsX[side][i];
+                    WorldStarPos.z += StarCoorsY[side][i];
+                    break;
+
+                default:
+                    WorldStarPos.x += StarCoorsX[side][i];
+                    WorldStarPos.y += StarCoorsY[side][i];
+                    break;
             }
 
             if(CalcScreenCoors(&WorldStarPos, &ScreenPos, &SZX, &SZY, false, true))
@@ -103,24 +110,30 @@ inline float RandomIt(float min, float max)
 void InitializeThoseStars()
 {
     // Keeps stars always the same
-    srand(0xBEEF);
+    srand(cfg->GetInt("StarsSeed", 0xBEEF));
 
-    for(int side = 0; side < 5; ++side)
+    for(int side = 0; side < STAR_SKYBOX_SIDES; ++side)
     for(int i = 0; i < AMOUNT_OF_STARS; ++i)
     {
-        StarCoorsX[side][i] = RandomIt(-1.0f, 1.0f);
+        StarCoorsX[side][i] = 95.0f * RandomIt(-1.0f, 1.0f);
 
         // Side=4 is when rendering stars directly ABOVE us
-        if(side == 4) StarCoorsY[side][i] = RandomIt(-1.0f, 1.0f);
-        else StarCoorsY[side][i] = RandomIt(-0.35f, 1.0f);
+        if(side == 4) StarCoorsY[side][i] = 95.0f * RandomIt(-1.0f, 1.0f);
+        else StarCoorsY[side][i] = 95.0f * RandomIt(-0.35f, 1.0f);
 
         // Smaller chances for a bigger star (this is more life-like)
-        if(RandomIt(0.0f, 1.0f) > 0.8) StarSizes[side][i] = RandomIt( 0.15f, 1.2f);
-        else StarSizes[side][i] = RandomIt(0.15f, 0.6f);
+        if(RandomIt(0.0f, 1.0f) > fBiggestStarsSpawnChance) StarSizes[side][i] = 0.8f * RandomIt(fSmallStars, fBiggestStars);
+        else StarSizes[side][i] = 0.8f * RandomIt(fSmallStars, fMiddleStars);
     }
 
     // Makes other rand() calls "more random"
     srand(time(NULL));
+}
+inline float ClampFloat(float value, float min, float max)
+{
+    if(value > max) return max;
+    if(value < min) return min;
+    return value;
 }
 extern "C" void OnModPreLoad()
 {
@@ -141,5 +154,11 @@ extern "C" void OnModPreLoad()
     aml->Redirect(pGTASA + 0x59F002 + 0x1, (uintptr_t)StarrySkies_inject);
 
     // Do init stuffs
+    fSmallStars = ClampFloat(cfg->GetFloat("SmallestStarsSize", 0.15f), 0.03f, 2.5f);
+    fMiddleStars = ClampFloat(cfg->GetFloat("MiddleStarsSize", 0.6f), 0.03f, 2.5f);
+    fBiggestStars = ClampFloat(cfg->GetFloat("BiggestStarsSize", 1.2f), 0.03f, 2.5f);
+    fBiggestStarsSpawnChance = 1.0f - 0.01f * ClampFloat(cfg->GetFloat("BiggestStarsChance", 20), 0.0f, 100.0f);
     InitializeThoseStars();
 }
+
+Config cfgLocal("StarrySkies"); Config* cfg = &cfgLocal;
