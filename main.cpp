@@ -3,15 +3,25 @@
 #include <mod/logger.h>
 #include <ctime>
 
+#ifdef AML32
 #include "GTASA_STRUCTS.h"
+#else
+#include "GTASA_STRUCTS_210.h"
+#endif
 
-MYMOD(net.rusjj.starryskies, GTA StarrySkies, 1.1, RusJJ)
+MYMOD(net.rusjj.starryskies, GTA StarrySkies, 1.2, RusJJ)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.aml, 1.0.2.1)
 END_DEPLIST()
 
 #define AMOUNT_OF_STARS 100
 #define STAR_SKYBOX_SIDES 5
+
+#ifdef AML32
+    #define BYVER(__for32, __for64) (__for32)
+#else
+    #define BYVER(__for32, __for64) (__for64)
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////     Saves     ///////////////////////////////
@@ -85,8 +95,9 @@ extern "C" void StarrySkies_Patch(float intensity)
         }
     }
 }
-__attribute__((optnone)) __attribute__((naked)) void StarrySkies_inject(void)
+__attribute__((optnone)) __attribute__((naked)) void StarrySkies_Inject(void)
 {
+#ifdef AML32
     asm volatile(
         "PUSH            {R0-R11}\n"
         "VMOV            R0, S20\n"
@@ -98,6 +109,17 @@ __attribute__((optnone)) __attribute__((naked)) void StarrySkies_inject(void)
         "POP             {R0-R11}\n"
         "BX              R12\n"
     :: "r" (StarrySkies_BackTo));
+#else
+    asm volatile(
+        "FMOV            W0, S0\n"
+        "MOV             W1, #0\n"
+        "BL              StarrySkies_Patch\n"
+    );
+    asm volatile(
+        "MOV             X16, %0\n"
+        "BR              X16\n"
+    :: "r" (StarrySkies_BackTo));
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -150,8 +172,8 @@ extern "C" void OnModPreLoad()
     SET_TO(RenderBufferedOneXLUSprite, aml->GetSym(hGTASA, "_ZN7CSprite26RenderBufferedOneXLUSpriteEfffffhhhsfh"));
 
     // GTA Patches
-    StarrySkies_BackTo = pGTASA + 0x59F20A + 0x1; // 0x59F134
-    aml->Redirect(pGTASA + 0x59F002 + 0x1, (uintptr_t)StarrySkies_inject);
+    StarrySkies_BackTo = pGTASA + BYVER(0x59F20A + 0x1, 0x6C30EC); // 0x59F134
+    aml->Redirect(pGTASA + BYVER(0x59F002 + 0x1, 0x6C2FDC), (uintptr_t)StarrySkies_Inject);
 
     // Do init stuffs
     fSmallStars = ClampFloat(cfg->GetFloat("SmallestStarsSize", 0.15f), 0.03f, 2.5f);
