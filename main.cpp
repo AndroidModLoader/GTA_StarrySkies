@@ -14,8 +14,7 @@ BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.aml, 1.0.2.1)
 END_DEPLIST()
 
-#define AMOUNT_OF_STARS 100
-#define STAR_SKYBOX_SIDES 5
+#define AMOUNT_OF_SIDESTARS 100
 
 #ifdef AML32
     #define BYVER(__for32, __for64) (__for32)
@@ -26,11 +25,21 @@ END_DEPLIST()
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////     Saves     ///////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
+enum eStarSides : uint8_t
+{
+    SSide_Left = 0,
+    SSide_Right,
+    SSide_Front,
+    SSide_Back,
+    SSide_Up,
+
+    SSidesCount
+};
 uintptr_t pGTASA;
 void* hGTASA;
-float StarCoorsX[STAR_SKYBOX_SIDES][AMOUNT_OF_STARS], StarCoorsY[STAR_SKYBOX_SIDES][AMOUNT_OF_STARS], StarSizes[STAR_SKYBOX_SIDES][AMOUNT_OF_STARS]; // 5 - sides
+float StarCoorsX[SSidesCount][AMOUNT_OF_SIDESTARS], StarCoorsY[SSidesCount][AMOUNT_OF_SIDESTARS], StarSizes[SSidesCount][AMOUNT_OF_SIDESTARS]; // 5 - sides
 float fSmallStars, fMiddleStars, fBiggestStars, fBiggestStarsSpawnChance;
-CVector PositionsTable[5] =
+CVector PositionsTable[SSidesCount] =
 {
     { 100.0f,  0.0f,   10.0f}, // Left
     {-100.0f,  0.0f,   10.0f}, // Right
@@ -56,26 +65,27 @@ void (*RenderBufferedOneXLUSprite)(CVector pos, float w, float h, uint8_t r, uin
 uintptr_t StarrySkies_BackTo;
 extern "C" void StarrySkies_Patch(float intensity)
 {
-    CVector ScreenPos, WorldPos, WorldStarPos, CamPos = TheCamera->GetPosition();
+    CVector ScreenPos, WorldPos, WorldStarPos;
+    CVector& CamPos = TheCamera->GetPosition();
     float SZ, SZX, SZY;
 
-    for(int side = 0; side < STAR_SKYBOX_SIDES; ++side)
+    for(int side = 0; side < SSidesCount; ++side)
     {
         WorldPos = PositionsTable[side] + CamPos;
-        for(int i = 0; i < AMOUNT_OF_STARS; ++i)
+        for(int i = 0; i < AMOUNT_OF_SIDESTARS; ++i)
         {
             WorldStarPos = WorldPos;
             SZ = StarSizes[side][i];
             switch(side)
             {
-                case 0:
-                case 1:
+                case SSide_Left:
+                case SSide_Right:
                     WorldStarPos.y -= StarCoorsX[side][i];
                     WorldStarPos.z += StarCoorsY[side][i];
                     break;
 
-                case 2:
-                case 3:
+                case SSide_Front:
+                case SSide_Back:
                     WorldStarPos.x -= StarCoorsX[side][i];
                     WorldStarPos.z += StarCoorsY[side][i];
                     break;
@@ -134,18 +144,20 @@ void InitializeThoseStars()
     // Keeps stars always the same
     srand(cfg->GetInt("StarsSeed", 0xBEEF));
 
-    for(int side = 0; side < STAR_SKYBOX_SIDES; ++side)
-    for(int i = 0; i < AMOUNT_OF_STARS; ++i)
+    for(int side = 0; side < SSidesCount; ++side)
     {
-        StarCoorsX[side][i] = 95.0f * RandomIt(-1.0f, 1.0f);
+        for(int i = 0; i < AMOUNT_OF_SIDESTARS; ++i)
+        {
+            StarCoorsX[side][i] = 95.0f * RandomIt(-1.0f, 1.0f);
 
-        // Side=4 is when rendering stars directly ABOVE us
-        if(side == 4) StarCoorsY[side][i] = 95.0f * RandomIt(-1.0f, 1.0f);
-        else StarCoorsY[side][i] = 95.0f * RandomIt(-0.35f, 1.0f);
+            // Side=4 is when rendering stars directly ABOVE us
+            if(side == SSide_Up) StarCoorsY[side][i] = 95.0f * RandomIt(-1.0f, 1.0f);
+            else StarCoorsY[side][i] = 95.0f * RandomIt(-0.35f, 1.0f);
 
-        // Smaller chances for a bigger star (this is more life-like)
-        if(RandomIt(0.0f, 1.0f) > fBiggestStarsSpawnChance) StarSizes[side][i] = 0.8f * RandomIt(fSmallStars, fBiggestStars);
-        else StarSizes[side][i] = 0.8f * RandomIt(fSmallStars, fMiddleStars);
+            // Smaller chances for a bigger star (this is more life-like)
+            if(RandomIt(0.0f, 1.0f) > fBiggestStarsSpawnChance) StarSizes[side][i] = 0.8f * RandomIt(fSmallStars, fBiggestStars);
+            else StarSizes[side][i] = 0.8f * RandomIt(fSmallStars, fMiddleStars);
+        }
     }
 
     // Makes other rand() calls "more random"
@@ -162,7 +174,22 @@ extern "C" void OnModPreLoad()
     logger->SetTag("StarrySkies");
     
     pGTASA = aml->GetLib("libGTASA.so");
-    hGTASA = aml->GetLibHandle("libGTASA.so");
+    if(pGTASA) hGTASA = aml->GetLibHandle("libGTASA.so");
+    else
+    {
+        cfg->GetInt("UnsupportedGame", 0);
+        return;
+
+        // We are not ready for GTA:VC now, later.
+
+        pGTASA = aml->GetLib("libGTAVC.so");
+        if(pGTASA) hGTASA = aml->GetLibHandle("libGTAVC.so");
+        else
+        {
+            cfg->GetInt("UnsupportedGame", 0);
+            return;
+        }
+    }
     
     // GTA Variables
     SET_TO(TheCamera, aml->GetSym(hGTASA, "TheCamera"));
